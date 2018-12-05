@@ -20,6 +20,7 @@ This repository aims at mirroring popular semantic segmentation architectures in
 ### Networks implemented
 
 * [PSPNet](https://arxiv.org/abs/1612.01105) - With support for loading pretrained models w/o caffe dependency
+* [ICNet](https://arxiv.org/pdf/1704.08545.pdf) - With optional batchnorm and pretrained models
 * [FRRN](https://arxiv.org/abs/1611.08323) - Model A and B
 * [FCN](https://arxiv.org/abs/1411.4038) - All 1 (FCN32s), 2 (FCN16s) and 3 (FCN8s) stream variants
 * [U-Net](https://arxiv.org/abs/1505.04597) - With optional deconvolution and batchnorm
@@ -45,11 +46,11 @@ This repository aims at mirroring popular semantic segmentation architectures in
 
 ### Requirements
 
-* pytorch >=0.3.0
+* pytorch >=0.4.0
 * torchvision ==0.2.0
-* visdom >=1.0.1 (for loss and results visualization)
 * scipy
 * tqdm
+* tensorboardX
 
 #### One-line installation
     
@@ -58,50 +59,94 @@ This repository aims at mirroring popular semantic segmentation architectures in
 ### Data
 
 * Download data for desired dataset(s) from list of URLs [here](https://meetshah1995.github.io/semantic-segmentation/deep-learning/pytorch/visdom/2017/06/01/semantic-segmentation-over-the-years.html#sec_datasets).
-* Extract the zip / tar and modify the path appropriately in `config.json`
+* Extract the zip / tar and modify the path appropriately in your `config.yaml`
 
 
 ### Usage
 
-Launch [visdom](https://github.com/facebookresearch/visdom#launch) by running (in a separate terminal window)
+**Setup config file**
 
-```
-python -m visdom.server
+```yaml
+# Model Configuration
+model:
+    arch: <name> [options: 'fcn[8,16,32]s, unet, segnet, pspnet, icnet, icnetBN, linknet, frrn[A,B]'
+    <model_keyarg_1>:<value>
+
+# Data Configuration
+data:
+    dataset: <name> [options: 'pascal, camvid, ade20k, mit_sceneparsing_benchmark, cityscapes, nyuv2, sunrgbd, vistas'] 
+    train_split: <split_to_train_on>
+    val_split: <spit_to_validate_on>
+    img_rows: 512
+    img_cols: 1024
+    path: <path/to/data>
+    <dataset_keyarg1>:<value>
+
+# Training Configuration
+training:
+    n_workers: 64
+    train_iters: 35000
+    batch_size: 16
+    val_interval: 500
+    print_interval: 25
+    loss:
+        name: <loss_type> [options: 'cross_entropy, bootstrapped_cross_entropy, multi_scale_crossentropy']
+        <loss_keyarg1>:<value>
+
+    # Optmizer Configuration
+    optimizer:
+        name: <optimizer_name> [options: 'sgd, adam, adamax, asgd, adadelta, adagrad, rmsprop']
+        lr: 1.0e-3
+        <optimizer_keyarg1>:<value>
+
+        # Warmup LR Configuration
+        warmup_iters: <iters for lr warmup>
+        mode: <'constant' or 'linear' for warmup'>
+        gamma: <gamma for warm up>
+       
+    # Augmentations Configuration
+    augmentations:
+        gamma: x                                     #[gamma varied in 1 to 1+x]
+        hue: x                                       #[hue varied in -x to x]
+        brightness: x                                #[brightness varied in 1-x to 1+x]
+        saturation: x                                #[saturation varied in 1-x to 1+x]
+        contrast: x                                  #[contrast varied in 1-x to 1+x]
+        rcrop: [h, w]                                #[crop of size (h,w)]
+        translate: [dh, dw]                          #[reflective translation by (dh, dw)]
+        rotate: d                                    #[rotate -d to d degrees]
+        scale: [h,w]                                 #[scale to size (h,w)]
+        ccrop: [h,w]                                 #[center crop of (h,w)]
+        hflip: p                                     #[flip horizontally with chance p]
+        vflip: p                                     #[flip vertically with chance p]
+
+    # LR Schedule Configuration
+    lr_schedule:
+        name: <schedule_type> [options: 'constant_lr, poly_lr, multi_step, cosine_annealing, exp_lr']
+        <scheduler_keyarg1>:<value>
+
+    # Resume from checkpoint  
+    resume: <path_to_checkpoint>
 ```
 
 **To train the model :**
 
 ```
-python train.py [-h] [--arch [ARCH]] [--dataset [DATASET]]
-                [--img_rows [IMG_ROWS]] [--img_cols [IMG_COLS]]
-                [--n_epoch [N_EPOCH]] [--batch_size [BATCH_SIZE]]
-                [--l_rate [L_RATE]] [--feature_scale [FEATURE_SCALE]]
-                [--visdom [VISDOM]]
+python train.py [-h] [--config [CONFIG]] 
 
-  --arch           Architecture to use ['fcn8s, unet, segnet etc']
-  --dataset        Dataset to use ['pascal, camvid, ade20k etc']
-  --img_rows       Height of the input image
-  --img_cols       Width of the input image
-  --n_epoch        # of the epochs
-  --batch_size     Batch Size
-  --l_rate         Learning Rate
-  --feature_scale  Divider for # of features to use
-  --visdom         Show visualization(s) on visdom | False by default
+--config                Configuration file to use
 ```
 
 **To validate the model :**
 
 ```
-python validate.py [-h] [--model_path [MODEL_PATH]] [--dataset [DATASET]]
-                   [--img_rows [IMG_ROWS]] [--img_cols [IMG_COLS]]
-                   [--batch_size [BATCH_SIZE]] [--split [SPLIT]]
+usage: validate.py [-h] [--config [CONFIG]] [--model_path [MODEL_PATH]]
+                       [--eval_flip] [--measure_time]
 
-  --model_path   Path to the saved model
-  --dataset      Dataset to use ['pascal, camvid, ade20k etc']
-  --img_rows     Height of the input image
-  --img_cols     Width of the input image
-  --batch_size   Batch Size
-  --split        Split of dataset to validate on
+  --config              Config file to be used
+  --model_path          Path to the saved model
+  --eval_flip           Enable evaluation with flipped image | True by default
+  --measure_time        Enable evaluation with time (fps) measurement | True
+                        by default
 ```
 
 **To test the model w.r.t. a dataset on custom images(s):**
@@ -124,7 +169,7 @@ python test.py [-h] [--model_path [MODEL_PATH]] [--dataset [DATASET]]
 @article{mshahsemseg,
     Author = {Meet P Shah},
     Title = {Semantic Segmentation Architectures Implemented in PyTorch.},
-    Journal = {https://github.com/meetsahh1995/pytorch-semseg},
+    Journal = {https://github.com/meetshah1995/pytorch-semseg},
     Year = {2017}
 }
 ```

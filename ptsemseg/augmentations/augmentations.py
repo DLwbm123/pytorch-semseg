@@ -4,6 +4,7 @@ import math
 import numbers
 import random
 import numpy as np
+import torchvision.transforms.functional as tf
 
 from PIL import Image, ImageOps
 
@@ -61,6 +62,56 @@ class RandomCrop(object):
         )
 
 
+class AdjustGamma(object):
+    def __init__(self, gamma):
+        self.gamma = gamma
+
+    def __call__(self, img, mask):
+        assert img.size == mask.size
+        return tf.adjust_gamma(img, random.uniform(1, 1 + self.gamma)), mask
+
+
+class AdjustSaturation(object):
+    def __init__(self, saturation):
+        self.saturation = saturation
+
+    def __call__(self, img, mask):
+        assert img.size == mask.size
+        return tf.adjust_saturation(img, 
+                                    random.uniform(1 - self.saturation, 
+                                                   1 + self.saturation)), mask
+
+
+class AdjustHue(object):
+    def __init__(self, hue):
+        self.hue = hue
+
+    def __call__(self, img, mask):
+        assert img.size == mask.size
+        return tf.adjust_hue(img, random.uniform(-self.hue, 
+                                                  self.hue)), mask
+
+
+class AdjustBrightness(object):
+    def __init__(self, bf):
+        self.bf = bf
+
+    def __call__(self, img, mask):
+        assert img.size == mask.size
+        return tf.adjust_brightness(img, 
+                                    random.uniform(1 - self.bf, 
+                                                   1 + self.bf)), mask
+
+class AdjustContrast(object):
+    def __init__(self, cf):
+        self.cf = cf
+
+    def __call__(self, img, mask):
+        assert img.size == mask.size
+        return tf.adjust_contrast(img, 
+                                  random.uniform(1 - self.cf, 
+                                                 1 + self.cf)), mask
+
 class CenterCrop(object):
     def __init__(self, size):
         if isinstance(size, numbers.Number):
@@ -81,11 +132,27 @@ class CenterCrop(object):
 
 
 class RandomHorizontallyFlip(object):
+    def __init__(self, p):
+        self.p = p
+
     def __call__(self, img, mask):
-        if random.random() < 0.5:
+        if random.random() < self.p:
             return (
                 img.transpose(Image.FLIP_LEFT_RIGHT),
                 mask.transpose(Image.FLIP_LEFT_RIGHT),
+            )
+        return img, mask
+
+
+class RandomVerticallyFlip(object):
+    def __init__(self, p):
+        self.p = p
+
+    def __call__(self, img, mask):
+        if random.random() < self.p:
+            return (
+                img.transpose(Image.FLIP_TOP_BOTTOM),
+                mask.transpose(Image.FLIP_TOP_BOTTOM),
             )
         return img, mask
 
@@ -100,6 +167,76 @@ class FreeScale(object):
             img.resize(self.size, Image.BILINEAR),
             mask.resize(self.size, Image.NEAREST),
         )
+
+
+class RandomTranslate(object):
+    def __init__(self, offset):
+        self.offset = offset # tuple (delta_x, delta_y)
+
+    def __call__(self, img, mask):
+        assert img.size == mask.size
+        x_offset = int(2 * (random.random() - 0.5) * self.offset[0])
+        y_offset = int(2 * (random.random() - 0.5) * self.offset[1])
+        
+        x_crop_offset = x_offset
+        y_crop_offset = y_offset
+        if x_offset < 0:
+            x_crop_offset = 0
+        if y_offset < 0:
+            y_crop_offset = 0
+        
+        cropped_img = tf.crop(img, 
+                              y_crop_offset, 
+                              x_crop_offset, 
+                              img.size[1]-abs(y_offset), 
+                              img.size[0]-abs(x_offset))
+
+        if x_offset >= 0 and y_offset >= 0:
+            padding_tuple = (0, 0, x_offset, y_offset)
+
+        elif x_offset >= 0 and y_offset < 0:
+            padding_tuple = (0, abs(y_offset), x_offset, 0)
+        
+        elif x_offset < 0 and y_offset >= 0:
+            padding_tuple = (abs(x_offset), 0, 0, y_offset)
+        
+        elif x_offset < 0 and y_offset < 0:
+            padding_tuple = (abs(x_offset), abs(y_offset), 0, 0)
+        
+        return (
+              tf.pad(cropped_img, 
+                     padding_tuple, 
+                     padding_mode='reflect'),
+              tf.affine(mask,
+                        translate=(-x_offset, -y_offset),
+                        scale=1.0,
+                        angle=0.0,
+                        shear=0.0,
+                        fillcolor=250))
+
+
+class RandomRotate(object):
+    def __init__(self, degree):
+        self.degree = degree
+
+    def __call__(self, img, mask):
+        rotate_degree = random.random() * 2 * self.degree - self.degree
+        return (
+            tf.affine(img, 
+                      translate=(0, 0),
+                      scale=1.0, 
+                      angle=rotate_degree, 
+                      resample=Image.BILINEAR,
+                      fillcolor=(0, 0, 0),
+                      shear=0.0),
+            tf.affine(mask, 
+                      translate=(0, 0), 
+                      scale=1.0, 
+                      angle=rotate_degree, 
+                      resample=Image.NEAREST,
+                      fillcolor=250,
+                      shear=0.0))
+
 
 
 class Scale(object):
@@ -161,18 +298,6 @@ class RandomSizedCrop(object):
         scale = Scale(self.size)
         crop = CenterCrop(self.size)
         return crop(*scale(img, mask))
-
-
-class RandomRotate(object):
-    def __init__(self, degree):
-        self.degree = degree
-
-    def __call__(self, img, mask):
-        rotate_degree = random.random() * 2 * self.degree - self.degree
-        return (
-            img.rotate(rotate_degree, Image.BILINEAR),
-            mask.rotate(rotate_degree, Image.NEAREST),
-        )
 
 
 class RandomSized(object):
